@@ -1,0 +1,28 @@
+# Logs
+sync.log
+*.log
+
+# Screenshots de debug
+*.png
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets (ne jamais commit)
+.env
+*.env
+credentials*
