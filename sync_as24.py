@@ -1,15 +1,7 @@
 #!/usr/bin/env python3
 """
-Synchronisation automatique des prix AS24 → FleetZen
-
-Ce script :
-1. Se connecte à l'extranet AS24 via Playwright
-2. Récupère les prix des stations configurées
-3. Envoie les prix à l'API FleetZen
-
-Stations surveillées :
-- AIRE DE GALANDE : Gazole → Diesel, AdBlue → AdBlue
-- MITRY MORY : GNR → GNR
+Synchronisation automatique des prix AS24 vers API externe.
+Configuration via variables d'environnement.
 """
 
 import os
@@ -40,12 +32,13 @@ AS24_PASSWORD = os.environ.get('AS24_PASSWORD', '')
 FLEETZEN_API_URL = os.environ.get('FLEETZEN_API_URL', '')
 FLEETZEN_API_KEY = os.environ.get('FLEETZEN_API_KEY', '')
 
-# Mapping AS24 → FleetZen
-PRICE_MAPPING = [
-    {'station': 'AIRE DE GALANDE', 'as24_product': 'Gazole', 'fleetzen_type': 'Diesel'},
-    {'station': 'AIRE DE GALANDE', 'as24_product': 'AD Blue', 'fleetzen_type': 'AdBlue'},
-    {'station': 'MITRY MORY', 'as24_product': 'GNR', 'fleetzen_type': 'GNR'},
-]
+# Mapping AS24 → FleetZen (JSON depuis variable d'environnement)
+# Format: [{"station":"NOM","as24_product":"Produit","fleetzen_type":"Type"},...]
+PRICE_MAPPING_JSON = os.environ.get('PRICE_MAPPING', '[]')
+try:
+    PRICE_MAPPING = json.loads(PRICE_MAPPING_JSON)
+except json.JSONDecodeError:
+    PRICE_MAPPING = []
 
 
 def get_as24_prices() -> list[dict]:

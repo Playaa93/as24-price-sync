@@ -1,63 +1,30 @@
-# AS24 Price Sync → FleetZen
+# AS24 Price Sync
 
-Synchronisation automatique des prix carburant AS24 vers l'application FleetZen.
+Synchronisation automatique des prix carburant AS24 vers une application externe.
 
 ## Fonctionnement
 
 ```
-GitHub Actions (7h00) → Script Python → AS24 API → FleetZen API
+GitHub Actions (cron) → Script Python → AS24 API → API externe
 ```
-
-## Stations surveillées
-
-| Station AS24 | Produit AS24 | Type FleetZen |
-|--------------|--------------|---------------|
-| AIRE DE GALANDE | Gazole | Diesel |
-| AIRE DE GALANDE | AD Blue | AdBlue |
-| MITRY MORY | GNR | GNR |
 
 ## Configuration
 
 ### Secrets GitHub requis
-
-Dans Settings → Secrets and variables → Actions :
 
 | Secret | Description |
 |--------|-------------|
 | `AS24_CLIENT_ID` | Numéro client AS24 |
 | `AS24_USERNAME` | Email AS24 |
 | `AS24_PASSWORD` | Mot de passe AS24 |
-| `FLEETZEN_API_URL` | URL de l'app FleetZen (ex: https://fleetzen.vercel.app) |
+| `FLEETZEN_API_URL` | URL de l'API destination |
 | `FLEETZEN_API_KEY` | Clé API pour l'authentification |
 
-### Variable d'environnement FleetZen
+## Déclenchement
 
-Ajouter dans Vercel :
-```
-FLEETZEN_API_KEY=votre_cle_api_secrete
-```
+- **Automatique** : tous les jours à 7h (Paris)
+- **Manuel** : Actions → Run workflow
 
-## Déclenchement manuel
+## Licence
 
-1. Aller dans Actions → AS24 Price Sync
-2. Cliquer sur "Run workflow"
-
-## Logs
-
-Les logs de chaque exécution sont disponibles dans :
-- Actions → Runs → Logs
-- Artifacts (fichier sync.log)
-
-## Test local
-
-```bash
-export AS24_CLIENT_ID="..."
-export AS24_USERNAME="..."
-export AS24_PASSWORD="..."
-export FLEETZEN_API_URL="http://localhost:3000"
-export FLEETZEN_API_KEY="..."
-
-pip install requests playwright
-playwright install chromium
-python sync_as24.py
-```
+Usage privé.
