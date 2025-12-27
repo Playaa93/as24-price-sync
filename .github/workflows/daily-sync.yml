@@ -32,6 +32,7 @@ jobs:
           AS24_PASSWORD: ${{ secrets.AS24_PASSWORD }}
           FLEETZEN_API_URL: ${{ secrets.FLEETZEN_API_URL }}
           FLEETZEN_API_KEY: ${{ secrets.FLEETZEN_API_KEY }}
+          PRICE_MAPPING: ${{ secrets.PRICE_MAPPING }}
         run: python sync_as24.py
 
       - name: Upload logs
