@@ -1,0 +1,39 @@
+name: Backfill Historical Prices
+
+on:
+  workflow_dispatch:
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install requests playwright
+          playwright install chromium
+
+      - name: Run Backfill
+        env:
+          AS24_CLIENT_ID: ${{ secrets.AS24_CLIENT_ID }}
+          AS24_USERNAME: ${{ secrets.AS24_USERNAME }}
+          AS24_PASSWORD: ${{ secrets.AS24_PASSWORD }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python backfill_history.py
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backfill-logs
+          path: backfill.log
+          retention-days: 7
