@@ -22,7 +22,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install requests playwright
+          pip install requests playwright supabase
           playwright install chromium
 
       - name: Run AS24 Sync
@@ -30,8 +30,8 @@ jobs:
           AS24_CLIENT_ID: ${{ secrets.AS24_CLIENT_ID }}
           AS24_USERNAME: ${{ secrets.AS24_USERNAME }}
           AS24_PASSWORD: ${{ secrets.AS24_PASSWORD }}
-          FLEETZEN_API_URL: ${{ secrets.FLEETZEN_API_URL }}
-          FLEETZEN_API_KEY: ${{ secrets.FLEETZEN_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           PRICE_MAPPING: ${{ secrets.PRICE_MAPPING }}
         run: python sync_as24.py
 

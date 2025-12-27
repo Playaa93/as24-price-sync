@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Synchronisation automatique des prix AS24 vers API externe.
+Synchronisation automatique des prix AS24 vers Supabase.
 Configuration via variables d'environnement.
 """
 
@@ -11,6 +11,7 @@ import logging
 from datetime import datetime
 from playwright.sync_api import sync_playwright
 import requests
+from supabase import create_client, Client
 
 # Configuration logging
 logging.basicConfig(
@@ -28,9 +29,9 @@ AS24_CLIENT_ID = os.environ.get('AS24_CLIENT_ID', '')
 AS24_USERNAME = os.environ.get('AS24_USERNAME', '')
 AS24_PASSWORD = os.environ.get('AS24_PASSWORD', '')
 
-# Configuration FleetZen
-FLEETZEN_API_URL = os.environ.get('FLEETZEN_API_URL', '')
-FLEETZEN_API_KEY = os.environ.get('FLEETZEN_API_KEY', '')
+# Configuration Supabase
+SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
+SUPABASE_SERVICE_KEY = os.environ.get('SUPABASE_SERVICE_KEY', '')
 
 # Mapping AS24 → FleetZen (JSON depuis variable d'environnement)
 # Format: [{"station":"NOM","as24_product":"Produit","fleetzen_type":"Type"},...]
@@ -120,8 +121,6 @@ def get_as24_prices() -> list[dict]:
 
     # Debug: afficher la structure des données
     if data:
-        log.info(f"Clés disponibles: {list(data[0].keys()) if isinstance(data[0], dict) else 'pas un dict'}")
-        log.info(f"Premier élément: {data[0]}")
         log.info(f"Mapping configuré: {PRICE_MAPPING}")
 
     # Extraire les prix configurés
@@ -141,19 +140,19 @@ def get_as24_prices() -> list[dict]:
                     log.warning(f"Prix invalide: {price_ht}")
                     continue
 
-                # Convertir timestamp en date
+                # Convertir timestamp en date ISO
                 app_date_ts = item.get('applicationDate', 0)
                 if app_date_ts:
-                    app_date = datetime.fromtimestamp(app_date_ts / 1000).strftime('%Y-%m-%d')
+                    app_date = datetime.fromtimestamp(app_date_ts / 1000).isoformat()
                 else:
-                    app_date = datetime.now().strftime('%Y-%m-%d')
+                    app_date = datetime.now().isoformat()
 
                 prices.append({
                     'station': mapping['station'],
                     'as24_product': mapping['as24_product'],
-                    'fleetzen_type': mapping['fleetzen_type'],
+                    'fuel_type': mapping['fleetzen_type'],
                     'price_ht': price_ht,
-                    'date': app_date,
+                    'effective_from': app_date,
                 })
                 log.info(f"  ✓ {mapping['station']} - {mapping['as24_product']}: {price_ht}€/L")
                 break
@@ -161,44 +160,36 @@ def get_as24_prices() -> list[dict]:
     return prices
 
 
-def send_to_fleetzen(prices: list[dict]) -> dict:
+def save_to_supabase(prices: list[dict]) -> dict:
     """
-    Envoie les prix à l'API FleetZen
+    Enregistre les prix directement dans Supabase via la fonction update_fuel_price()
     """
-    if not FLEETZEN_API_URL or not FLEETZEN_API_KEY:
-        raise ValueError("Configuration FleetZen manquante")
+    if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        raise ValueError("Configuration Supabase manquante")
 
-    log.info(f"Envoi de {len(prices)} prix à FleetZen...")
+    log.info(f"Connexion à Supabase...")
+    supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
     results = {'success': 0, 'errors': []}
 
     for price in prices:
         try:
-            response = requests.post(
-                f"{FLEETZEN_API_URL}/api/cron/as24-sync",
-                headers={
-                    'Content-Type': 'application/json',
-                    'Authorization': f'Bearer {FLEETZEN_API_KEY}',
-                },
-                json={
-                    'fuel_type': price['fleetzen_type'],
-                    'prix_achat_as24': price['price_ht'],
-                    'effective_from': price['date'],
-                    'source': 'as24_sync',
-                    'notes': f"AS24 - {price['station']} {price['as24_product']}",
-                }
-            )
+            # Utiliser la fonction SQL update_fuel_price() qui gère l'historisation
+            result = supabase.rpc('update_fuel_price', {
+                'p_fuel_type': price['fuel_type'],
+                'p_new_prix_as24': price['price_ht'],
+                'p_effective_from': price['effective_from'],
+                'p_source': 'api',  # Source autorisée: 'manual', 'csv_import', 'api', 'web_scraping'
+                'p_source_reference': f"AS24 - {price['station']} - {price['as24_product']}",
+                'p_notes': f"Import automatique AS24 du {datetime.now().strftime('%d/%m/%Y %H:%M')}",
+            }).execute()
 
-            if response.status_code == 200:
-                results['success'] += 1
-                log.info(f"  ✓ {price['fleetzen_type']}: {price['price_ht']}€/L")
-            else:
-                error = f"{price['fleetzen_type']}: {response.status_code} - {response.text}"
-                results['errors'].append(error)
-                log.error(f"  ✗ {error}")
+            results['success'] += 1
+            prix_vente = price['price_ht'] + 0.07
+            log.info(f"  ✓ {price['fuel_type']}: {price['price_ht']:.4f}€/L (vente: {prix_vente:.4f}€/L)")
 
         except Exception as e:
-            error = f"{price['fleetzen_type']}: {str(e)}"
+            error = f"{price['fuel_type']}: {str(e)}"
             results['errors'].append(error)
             log.error(f"  ✗ {error}")
 
@@ -207,7 +198,7 @@ def send_to_fleetzen(prices: list[dict]) -> dict:
 
 def main():
     log.info("=" * 50)
-    log.info("DÉMARRAGE SYNC AS24 → FLEETZEN")
+    log.info("DÉMARRAGE SYNC AS24 → SUPABASE")
     log.info("=" * 50)
 
     try:
@@ -220,8 +211,8 @@ def main():
 
         log.info(f"\n{len(prices)} prix récupérés")
 
-        # 2. Envoyer à FleetZen
-        results = send_to_fleetzen(prices)
+        # 2. Enregistrer dans Supabase
+        results = save_to_supabase(prices)
 
         # 3. Résumé
         log.info("\n" + "=" * 50)
