@@ -175,21 +175,22 @@ def save_to_supabase(prices: list[dict]) -> dict:
 
     for price in prices:
         try:
-            # 1. Fermer le prix actuel (mettre effective_until)
+            # 1. Désactiver le prix actuel
             supabase.table('fuel_prices').update({
+                'is_active': False,
                 'effective_until': price['effective_from'],
-            }).eq('fuel_type', price['fuel_type']).is_('effective_until', 'null').execute()
+                'updated_at': now,
+            }).eq('fuel_type', price['fuel_type']).eq('is_active', True).execute()
 
             # 2. Insérer le nouveau prix
             supabase.table('fuel_prices').insert({
                 'fuel_type': price['fuel_type'],
-                'prix_achat_as24': price['price_ht'],
+                'price_per_liter': round(price['price_ht'], 2),
+                'is_active': True,
                 'effective_from': price['effective_from'],
                 'effective_until': None,
-                'source': 'api',
-                'source_reference': f"AS24 - {price['station']} - {price['as24_product']}",
-                'notes': f"Import automatique AS24 du {datetime.now().strftime('%d/%m/%Y %H:%M')}",
                 'created_at': now,
+                'updated_at': now,
             }).execute()
 
             results['success'] += 1
