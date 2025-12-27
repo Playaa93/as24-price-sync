@@ -1,0 +1,43 @@
+name: AS24 Price Sync
+
+on:
+  schedule:
+    # Tous les jours à 7h00 (heure de Paris = 6h00 UTC en hiver, 5h00 UTC en été)
+    - cron: '0 6 * * *'
+  workflow_dispatch: # Permet le déclenchement manuel
+
+jobs:
+  sync-prices:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install requests playwright
+          playwright install chromium
+
+      - name: Run AS24 Sync
+        env:
+          AS24_CLIENT_ID: ${{ secrets.AS24_CLIENT_ID }}
+          AS24_USERNAME: ${{ secrets.AS24_USERNAME }}
+          AS24_PASSWORD: ${{ secrets.AS24_PASSWORD }}
+          FLEETZEN_API_URL: ${{ secrets.FLEETZEN_API_URL }}
+          FLEETZEN_API_KEY: ${{ secrets.FLEETZEN_API_KEY }}
+        run: python sync_as24.py
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sync-logs-${{ github.run_number }}
+          path: sync.log
+          retention-days: 30
