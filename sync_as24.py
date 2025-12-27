@@ -162,7 +162,7 @@ def get_as24_prices() -> list[dict]:
 
 def save_to_supabase(prices: list[dict]) -> dict:
     """
-    Enregistre les prix directement dans Supabase via la fonction update_fuel_price()
+    Enregistre les prix directement dans Supabase (opérations table directes)
     """
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         raise ValueError("Configuration Supabase manquante")
@@ -171,17 +171,25 @@ def save_to_supabase(prices: list[dict]) -> dict:
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
     results = {'success': 0, 'errors': []}
+    now = datetime.now().isoformat()
 
     for price in prices:
         try:
-            # Utiliser la fonction SQL update_fuel_price() qui gère l'historisation
-            result = supabase.rpc('update_fuel_price', {
-                'p_fuel_type': price['fuel_type'],
-                'p_new_prix_as24': price['price_ht'],
-                'p_effective_from': price['effective_from'],
-                'p_source': 'api',  # Source autorisée: 'manual', 'csv_import', 'api', 'web_scraping'
-                'p_source_reference': f"AS24 - {price['station']} - {price['as24_product']}",
-                'p_notes': f"Import automatique AS24 du {datetime.now().strftime('%d/%m/%Y %H:%M')}",
+            # 1. Fermer le prix actuel (mettre effective_until)
+            supabase.table('fuel_prices').update({
+                'effective_until': price['effective_from'],
+            }).eq('fuel_type', price['fuel_type']).is_('effective_until', 'null').execute()
+
+            # 2. Insérer le nouveau prix
+            supabase.table('fuel_prices').insert({
+                'fuel_type': price['fuel_type'],
+                'prix_achat_as24': price['price_ht'],
+                'effective_from': price['effective_from'],
+                'effective_until': None,
+                'source': 'api',
+                'source_reference': f"AS24 - {price['station']} - {price['as24_product']}",
+                'notes': f"Import automatique AS24 du {datetime.now().strftime('%d/%m/%Y %H:%M')}",
+                'created_at': now,
             }).execute()
 
             results['success'] += 1
