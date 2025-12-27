@@ -192,19 +192,15 @@ def main():
             fuel_type = price['fuel_type']
             price_ttc = price['price_ttc']
 
-            # Vérifier si le prix a changé par rapport au jour précédent
-            if fuel_type in last_prices and last_prices[fuel_type] == price_ttc:
-                continue  # Prix inchangé
-
+            # Insérer un prix pour CHAQUE jour (pas juste les changements)
             # Fermer l'ancien prix actif
-            if fuel_type in last_prices:
-                supabase_request('PATCH', 'fuel_prices',
-                    data={
-                        'is_active': False,
-                        'effective_until': current_date.isoformat(),
-                    },
-                    params=f'?fuel_type=eq.{fuel_type}&is_active=eq.true'
-                )
+            supabase_request('PATCH', 'fuel_prices',
+                data={
+                    'is_active': False,
+                    'effective_until': current_date.isoformat(),
+                },
+                params=f'?fuel_type=eq.{fuel_type}&is_active=eq.true'
+            )
 
             # Insérer le nouveau prix
             supabase_request('POST', 'fuel_prices',
@@ -219,14 +215,10 @@ def main():
                 }
             )
 
-            last_prices[fuel_type] = price_ttc
             total_inserted += 1
             changes.append(f"{fuel_type}={price_ttc}€")
 
-        if changes:
-            log.info(f"📅 {date_str} - {', '.join(changes)}")
-        else:
-            log.info(f"📅 {date_str} - (inchangé)")
+        log.info(f"📅 {date_str} - {', '.join(changes)}")
 
         current_date += timedelta(days=1)
 
