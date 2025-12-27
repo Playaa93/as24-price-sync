@@ -143,7 +143,7 @@ def get_prices_for_date(jwt_token: str, target_date: datetime) -> list[dict]:
                     prices.append({
                         'fuel_type': mapping['fleetzen_type'],
                         'price_ht': price_ht,
-                        'price_ttc': round(price_ht * 1.20, 2),
+                        'price_ttc': round(price_ht * 1.20, 4),  # 4 décimales
                     })
                 break
 

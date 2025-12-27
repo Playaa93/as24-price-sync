@@ -175,7 +175,7 @@ def save_to_supabase(prices: list[dict]) -> dict:
 
     for price in prices:
         try:
-            price_ttc = round(price['price_ht'] * 1.20, 2)
+            price_ttc = round(price['price_ht'] * 1.20, 4)  # 4 décimales
 
             # Vérifier si un prix actif existe déjà pour aujourd'hui
             existing = supabase.table('fuel_prices').select('id, price_per_liter').eq(
