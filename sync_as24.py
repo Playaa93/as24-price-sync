@@ -182,10 +182,11 @@ def save_to_supabase(prices: list[dict]) -> dict:
                 'updated_at': now,
             }).eq('fuel_type', price['fuel_type']).eq('is_active', True).execute()
 
-            # 2. Insérer le nouveau prix
+            # 2. Insérer le nouveau prix (conversion HT → TTC avec TVA 20%)
+            price_ttc = round(price['price_ht'] * 1.20, 2)
             supabase.table('fuel_prices').insert({
                 'fuel_type': price['fuel_type'],
-                'price_per_liter': round(price['price_ht'], 2),
+                'price_per_liter': price_ttc,
                 'is_active': True,
                 'effective_from': price['effective_from'],
                 'effective_until': None,
