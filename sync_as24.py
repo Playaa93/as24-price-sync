@@ -175,28 +175,38 @@ def save_to_supabase(prices: list[dict]) -> dict:
 
     for price in prices:
         try:
-            # 1. Désactiver le prix actuel
-            supabase.table('fuel_prices').update({
-                'is_active': False,
-                'effective_until': price['effective_from'],
-                'updated_at': now,
-            }).eq('fuel_type', price['fuel_type']).eq('is_active', True).execute()
-
-            # 2. Insérer le nouveau prix (conversion HT → TTC avec TVA 20%)
             price_ttc = round(price['price_ht'] * 1.20, 2)
-            supabase.table('fuel_prices').insert({
-                'fuel_type': price['fuel_type'],
-                'price_per_liter': price_ttc,
-                'is_active': True,
-                'effective_from': price['effective_from'],
-                'effective_until': None,
-                'created_at': now,
-                'updated_at': now,
-            }).execute()
+
+            # Vérifier si un prix actif existe déjà pour aujourd'hui
+            existing = supabase.table('fuel_prices').select('id, price_per_liter').eq(
+                'fuel_type', price['fuel_type']
+            ).eq('is_active', True).execute()
+
+            if existing.data:
+                # Mettre à jour le prix existant si différent
+                current_price = existing.data[0]['price_per_liter']
+                if float(current_price) != price_ttc:
+                    supabase.table('fuel_prices').update({
+                        'price_per_liter': price_ttc,
+                        'updated_at': now,
+                    }).eq('id', existing.data[0]['id']).execute()
+                    log.info(f"  ✓ {price['fuel_type']}: {current_price}€ → {price_ttc}€/L TTC (MAJ)")
+                else:
+                    log.info(f"  = {price['fuel_type']}: {price_ttc}€/L TTC (inchangé)")
+            else:
+                # Insérer un nouveau prix
+                supabase.table('fuel_prices').insert({
+                    'fuel_type': price['fuel_type'],
+                    'price_per_liter': price_ttc,
+                    'is_active': True,
+                    'effective_from': price['effective_from'],
+                    'effective_until': None,
+                    'created_at': now,
+                    'updated_at': now,
+                }).execute()
+                log.info(f"  ✓ {price['fuel_type']}: {price_ttc}€/L TTC (nouveau)")
 
             results['success'] += 1
-            prix_vente = price['price_ht'] + 0.07
-            log.info(f"  ✓ {price['fuel_type']}: {price['price_ht']:.4f}€/L (vente: {prix_vente:.4f}€/L)")
 
         except Exception as e:
             error = f"{price['fuel_type']}: {str(e)}"
