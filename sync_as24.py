@@ -128,28 +128,32 @@ def get_as24_prices() -> list[dict]:
     prices = []
     for mapping in PRICE_MAPPING:
         for item in data:
-            station_name = item.get('Nom de la station', '').upper()
-            product_name = item.get('Produit', '').upper()
+            station_name = item.get('stationName', '').upper()
+            product_name = item.get('productName', '').upper()
 
             if (station_name == mapping['station'].upper() and
                 product_name == mapping['as24_product'].upper()):
 
-                # Parser le prix HT
-                price_str = item.get('HT barême en devise locale', '')
-                price_match = price_str.replace('€/L', '').replace(',', '.').strip()
+                # Récupérer le prix HT directement (c'est déjà un float)
+                price_ht = item.get('localCurrencyPriceVATExcl', 0)
 
-                try:
-                    price_ht = float(price_match)
-                except ValueError:
-                    log.warning(f"Prix invalide: {price_str}")
+                if not price_ht or price_ht <= 0:
+                    log.warning(f"Prix invalide: {price_ht}")
                     continue
+
+                # Convertir timestamp en date
+                app_date_ts = item.get('applicationDate', 0)
+                if app_date_ts:
+                    app_date = datetime.fromtimestamp(app_date_ts / 1000).strftime('%Y-%m-%d')
+                else:
+                    app_date = datetime.now().strftime('%Y-%m-%d')
 
                 prices.append({
                     'station': mapping['station'],
                     'as24_product': mapping['as24_product'],
                     'fleetzen_type': mapping['fleetzen_type'],
                     'price_ht': price_ht,
-                    'date': item.get("Date d'application", datetime.now().strftime('%Y-%m-%d')),
+                    'date': app_date,
                 })
                 log.info(f"  ✓ {mapping['station']} - {mapping['as24_product']}: {price_ht}€/L")
                 break
