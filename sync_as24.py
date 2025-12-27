@@ -118,6 +118,16 @@ def get_as24_prices() -> list[dict]:
     data = response.json()
     log.info(f"Données reçues: {len(data)} entrées")
 
+    # Debug: afficher quelques noms de stations pour vérifier le format
+    if data:
+        sample_stations = set()
+        for item in data[:50]:
+            station = item.get('Nom de la station', 'N/A')
+            if station != 'N/A':
+                sample_stations.add(station)
+        log.info(f"Exemples de stations: {list(sample_stations)[:10]}")
+        log.info(f"Mapping configuré: {PRICE_MAPPING}")
+
     # Extraire les prix configurés
     prices = []
     for mapping in PRICE_MAPPING:
