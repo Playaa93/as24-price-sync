@@ -181,20 +181,19 @@ def save_to_supabase(prices: list[dict]) -> dict:
             price_ttc = round(price['price_ht'] * 1.20, 4)  # 4 décimales
 
             # Vérifier si un prix existe DÉJÀ pour aujourd'hui (même jour)
-            existing_today = supabase.table('fuel_prices').select('id, price_per_liter, prix_achat_as24').eq(
+            existing_today = supabase.table('fuel_prices').select('id, price_per_liter').eq(
                 'fuel_type', price['fuel_type']
             ).gte('effective_from', today_start).lte('effective_from', today_end).execute()
 
             if existing_today.data:
                 # Un enregistrement existe déjà pour aujourd'hui
-                current_price = existing_today.data[0].get('prix_achat_as24') or existing_today.data[0].get('price_per_liter')
+                current_price = existing_today.data[0].get('price_per_liter')
                 if current_price and abs(float(current_price) - price_ttc) < 0.0001:
                     log.info(f"  = {price['fuel_type']}: {price_ttc}€/L TTC (déjà enregistré aujourd'hui)")
                     results['skipped'] += 1
                 else:
                     # Mettre à jour le prix du jour si différent
                     supabase.table('fuel_prices').update({
-                        'prix_achat_as24': price_ttc,
                         'price_per_liter': price_ttc,
                         'updated_at': now.isoformat(),
                     }).eq('id', existing_today.data[0]['id']).execute()
@@ -204,7 +203,6 @@ def save_to_supabase(prices: list[dict]) -> dict:
                 # Pas d'enregistrement aujourd'hui → Insérer un nouveau
                 supabase.table('fuel_prices').insert({
                     'fuel_type': price['fuel_type'],
-                    'prix_achat_as24': price_ttc,
                     'price_per_liter': price_ttc,
                     'is_active': True,
                     'effective_from': today_start,  # Début du jour pour le calendrier
