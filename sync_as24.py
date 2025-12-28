@@ -8,7 +8,7 @@ import os
 import sys
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, date
 from playwright.sync_api import sync_playwright
 import requests
 from supabase import create_client, Client
@@ -162,7 +162,8 @@ def get_as24_prices() -> list[dict]:
 
 def save_to_supabase(prices: list[dict]) -> dict:
     """
-    Enregistre les prix directement dans Supabase (opérations table directes)
+    Enregistre les prix dans Supabase avec un enregistrement par jour.
+    Crée un nouvel enregistrement avec effective_from = début du jour.
     """
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         raise ValueError("Configuration Supabase manquante")
@@ -170,43 +171,50 @@ def save_to_supabase(prices: list[dict]) -> dict:
     log.info(f"Connexion à Supabase...")
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
-    results = {'success': 0, 'errors': []}
-    now = datetime.now().isoformat()
+    results = {'success': 0, 'errors': [], 'skipped': 0}
+    now = datetime.now()
+    today_start = datetime(now.year, now.month, now.day, 0, 0, 0).isoformat()
+    today_end = datetime(now.year, now.month, now.day, 23, 59, 59).isoformat()
 
     for price in prices:
         try:
             price_ttc = round(price['price_ht'] * 1.20, 4)  # 4 décimales
 
-            # Vérifier si un prix actif existe déjà pour aujourd'hui
-            existing = supabase.table('fuel_prices').select('id, price_per_liter').eq(
+            # Vérifier si un prix existe DÉJÀ pour aujourd'hui (même jour)
+            existing_today = supabase.table('fuel_prices').select('id, price_per_liter, prix_achat_as24').eq(
                 'fuel_type', price['fuel_type']
-            ).eq('is_active', True).execute()
+            ).gte('effective_from', today_start).lte('effective_from', today_end).execute()
 
-            if existing.data:
-                # Mettre à jour le prix existant si différent
-                current_price = existing.data[0]['price_per_liter']
-                if float(current_price) != price_ttc:
-                    supabase.table('fuel_prices').update({
-                        'price_per_liter': price_ttc,
-                        'updated_at': now,
-                    }).eq('id', existing.data[0]['id']).execute()
-                    log.info(f"  ✓ {price['fuel_type']}: {current_price}€ → {price_ttc}€/L TTC (MAJ)")
+            if existing_today.data:
+                # Un enregistrement existe déjà pour aujourd'hui
+                current_price = existing_today.data[0].get('prix_achat_as24') or existing_today.data[0].get('price_per_liter')
+                if current_price and abs(float(current_price) - price_ttc) < 0.0001:
+                    log.info(f"  = {price['fuel_type']}: {price_ttc}€/L TTC (déjà enregistré aujourd'hui)")
+                    results['skipped'] += 1
                 else:
-                    log.info(f"  = {price['fuel_type']}: {price_ttc}€/L TTC (inchangé)")
+                    # Mettre à jour le prix du jour si différent
+                    supabase.table('fuel_prices').update({
+                        'prix_achat_as24': price_ttc,
+                        'price_per_liter': price_ttc,
+                        'updated_at': now.isoformat(),
+                    }).eq('id', existing_today.data[0]['id']).execute()
+                    log.info(f"  ↻ {price['fuel_type']}: {current_price}€ → {price_ttc}€/L TTC (MAJ jour)")
+                    results['success'] += 1
             else:
-                # Insérer un nouveau prix
+                # Pas d'enregistrement aujourd'hui → Insérer un nouveau
                 supabase.table('fuel_prices').insert({
                     'fuel_type': price['fuel_type'],
+                    'prix_achat_as24': price_ttc,
                     'price_per_liter': price_ttc,
                     'is_active': True,
-                    'effective_from': price['effective_from'],
+                    'effective_from': today_start,  # Début du jour pour le calendrier
                     'effective_until': None,
-                    'created_at': now,
-                    'updated_at': now,
+                    'source': 'api',
+                    'created_at': now.isoformat(),
+                    'updated_at': now.isoformat(),
                 }).execute()
-                log.info(f"  ✓ {price['fuel_type']}: {price_ttc}€/L TTC (nouveau)")
-
-            results['success'] += 1
+                log.info(f"  ✓ {price['fuel_type']}: {price_ttc}€/L TTC (nouveau jour)")
+                results['success'] += 1
 
         except Exception as e:
             error = f"{price['fuel_type']}: {str(e)}"
@@ -238,7 +246,8 @@ def main():
         log.info("\n" + "=" * 50)
         log.info("RÉSUMÉ")
         log.info("=" * 50)
-        log.info(f"Prix mis à jour: {results['success']}/{len(prices)}")
+        log.info(f"Nouveaux/MAJ: {results['success']}/{len(prices)}")
+        log.info(f"Déjà présents: {results['skipped']}/{len(prices)}")
 
         if results['errors']:
             log.error(f"Erreurs: {len(results['errors'])}")
