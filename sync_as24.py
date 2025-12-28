@@ -8,7 +8,7 @@ import os
 import sys
 import json
 import logging
-from datetime import datetime, date
+from datetime import datetime
 from playwright.sync_api import sync_playwright
 import requests
 from supabase import create_client, Client
@@ -34,7 +34,6 @@ SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
 SUPABASE_SERVICE_KEY = os.environ.get('SUPABASE_SERVICE_KEY', '')
 
 # Mapping AS24 → FleetZen (JSON depuis variable d'environnement)
-# Format: [{"station":"NOM","as24_product":"Produit","fleetzen_type":"Type"},...]
 PRICE_MAPPING_JSON = os.environ.get('PRICE_MAPPING', '[]')
 try:
     PRICE_MAPPING = json.loads(PRICE_MAPPING_JSON)
@@ -43,9 +42,6 @@ except json.JSONDecodeError:
 
 
 def get_as24_prices() -> list[dict]:
-    """
-    Se connecte à AS24 et récupère les prix via l'API
-    """
     if not all([AS24_CLIENT_ID, AS24_USERNAME, AS24_PASSWORD]):
         raise ValueError("Credentials AS24 manquants")
 
@@ -56,17 +52,14 @@ def get_as24_prices() -> list[dict]:
         context = browser.new_context()
         page = context.new_page()
 
-        # Page de login
         page.goto("https://extranet.as24.com/extranet/fr/login")
 
-        # Accepter cookies
         try:
             page.click("button:has-text('Accepter & Fermer')", timeout=5000)
             page.wait_for_timeout(1000)
         except:
             pass
 
-        # Remplir formulaire
         page.wait_for_selector('input', timeout=10000)
         inputs = page.locator('input:visible').all()
 
@@ -77,13 +70,11 @@ def get_as24_prices() -> list[dict]:
         else:
             raise Exception(f"Formulaire non trouvé - {len(inputs)} inputs")
 
-        # Connexion
         page.click('button:has-text("CONNEXION")')
         page.wait_for_timeout(3000)
 
         log.info(f"URL après connexion: {page.url}")
 
-        # Récupérer les cookies pour l'API
         cookies = context.cookies()
         jwt_cookie = next((c for c in cookies if c['name'] == 'MYAS24-JWT'), None)
 
@@ -96,7 +87,6 @@ def get_as24_prices() -> list[dict]:
 
         browser.close()
 
-    # Appeler l'API AS24 pour récupérer les prix
     log.info("Récupération des prix via API AS24...")
 
     response = requests.post(
@@ -119,11 +109,9 @@ def get_as24_prices() -> list[dict]:
     data = response.json()
     log.info(f"Données reçues: {len(data)} entrées")
 
-    # Debug: afficher la structure des données
     if data:
         log.info(f"Mapping configuré: {PRICE_MAPPING}")
 
-    # Extraire les prix configurés
     prices = []
     for mapping in PRICE_MAPPING:
         for item in data:
@@ -133,26 +121,15 @@ def get_as24_prices() -> list[dict]:
             if (station_name == mapping['station'].upper() and
                 product_name == mapping['as24_product'].upper()):
 
-                # Récupérer le prix HT directement (c'est déjà un float)
                 price_ht = item.get('localCurrencyPriceVATExcl', 0)
 
                 if not price_ht or price_ht <= 0:
                     log.warning(f"Prix invalide: {price_ht}")
                     continue
 
-                # Convertir timestamp en date ISO
-                app_date_ts = item.get('applicationDate', 0)
-                if app_date_ts:
-                    app_date = datetime.fromtimestamp(app_date_ts / 1000).isoformat()
-                else:
-                    app_date = datetime.now().isoformat()
-
                 prices.append({
-                    'station': mapping['station'],
-                    'as24_product': mapping['as24_product'],
                     'fuel_type': mapping['fleetzen_type'],
                     'price_ht': price_ht,
-                    'effective_from': app_date,
                 })
                 log.info(f"  ✓ {mapping['station']} - {mapping['as24_product']}: {price_ht}€/L")
                 break
@@ -161,10 +138,6 @@ def get_as24_prices() -> list[dict]:
 
 
 def save_to_supabase(prices: list[dict]) -> dict:
-    """
-    Enregistre les prix dans Supabase avec un enregistrement par jour.
-    Crée un nouvel enregistrement avec effective_from = début du jour.
-    """
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         raise ValueError("Configuration Supabase manquante")
 
@@ -178,40 +151,37 @@ def save_to_supabase(prices: list[dict]) -> dict:
 
     for price in prices:
         try:
-            price_ttc = round(price['price_ht'] * 1.20, 4)  # 4 décimales
+            price_ttc = round(price['price_ht'] * 1.20, 4)
 
-            # Vérifier si un prix existe DÉJÀ pour aujourd'hui (même jour)
+            # Vérifier si un prix existe déjà pour aujourd'hui
             existing_today = supabase.table('fuel_prices').select('id, price_per_liter').eq(
                 'fuel_type', price['fuel_type']
             ).gte('effective_from', today_start).lte('effective_from', today_end).execute()
 
             if existing_today.data:
-                # Un enregistrement existe déjà pour aujourd'hui
                 current_price = existing_today.data[0].get('price_per_liter')
                 if current_price and abs(float(current_price) - price_ttc) < 0.0001:
-                    log.info(f"  = {price['fuel_type']}: {price_ttc}€/L TTC (déjà enregistré aujourd'hui)")
+                    log.info(f"  = {price['fuel_type']}: {price_ttc}€/L TTC (déjà présent)")
                     results['skipped'] += 1
                 else:
-                    # Mettre à jour le prix du jour si différent
                     supabase.table('fuel_prices').update({
                         'price_per_liter': price_ttc,
                         'updated_at': now.isoformat(),
                     }).eq('id', existing_today.data[0]['id']).execute()
-                    log.info(f"  ↻ {price['fuel_type']}: {current_price}€ → {price_ttc}€/L TTC (MAJ jour)")
+                    log.info(f"  ↻ {price['fuel_type']}: {current_price}€ → {price_ttc}€/L TTC (MAJ)")
                     results['success'] += 1
             else:
-                # Pas d'enregistrement aujourd'hui → Insérer un nouveau
+                # Insérer nouveau prix du jour
                 supabase.table('fuel_prices').insert({
                     'fuel_type': price['fuel_type'],
                     'price_per_liter': price_ttc,
                     'is_active': True,
-                    'effective_from': today_start,  # Début du jour pour le calendrier
+                    'effective_from': today_start,
                     'effective_until': None,
-                    'source': 'api',
                     'created_at': now.isoformat(),
                     'updated_at': now.isoformat(),
                 }).execute()
-                log.info(f"  ✓ {price['fuel_type']}: {price_ttc}€/L TTC (nouveau jour)")
+                log.info(f"  ✓ {price['fuel_type']}: {price_ttc}€/L TTC (nouveau)")
                 results['success'] += 1
 
         except Exception as e:
@@ -228,7 +198,6 @@ def main():
     log.info("=" * 50)
 
     try:
-        # 1. Récupérer les prix AS24
         prices = get_as24_prices()
 
         if not prices:
@@ -237,10 +206,8 @@ def main():
 
         log.info(f"\n{len(prices)} prix récupérés")
 
-        # 2. Enregistrer dans Supabase
         results = save_to_supabase(prices)
 
-        # 3. Résumé
         log.info("\n" + "=" * 50)
         log.info("RÉSUMÉ")
         log.info("=" * 50)
