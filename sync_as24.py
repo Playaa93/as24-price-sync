@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
 Synchronisation automatique des prix AS24 vers Supabase.
-Configuration via variables d'environnement.
 """
 
 import os
@@ -13,7 +12,6 @@ from playwright.sync_api import sync_playwright
 import requests
 from supabase import create_client, Client
 
-# Configuration logging
 logging.basicConfig(
     level=logging.INFO,
     format='[%(asctime)s] %(levelname)s: %(message)s',
@@ -24,16 +22,12 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-# Configuration AS24
 AS24_CLIENT_ID = os.environ.get('AS24_CLIENT_ID', '')
 AS24_USERNAME = os.environ.get('AS24_USERNAME', '')
 AS24_PASSWORD = os.environ.get('AS24_PASSWORD', '')
-
-# Configuration Supabase
 SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
 SUPABASE_SERVICE_KEY = os.environ.get('SUPABASE_SERVICE_KEY', '')
 
-# Mapping AS24 → FleetZen (JSON depuis variable d'environnement)
 PRICE_MAPPING_JSON = os.environ.get('PRICE_MAPPING', '[]')
 try:
     PRICE_MAPPING = json.loads(PRICE_MAPPING_JSON)
@@ -84,7 +78,6 @@ def get_as24_prices() -> list[dict]:
 
         jwt_token = jwt_cookie['value']
         log.info("Token JWT récupéré")
-
         browser.close()
 
     log.info("Récupération des prix via API AS24...")
@@ -109,9 +102,6 @@ def get_as24_prices() -> list[dict]:
     data = response.json()
     log.info(f"Données reçues: {len(data)} entrées")
 
-    if data:
-        log.info(f"Mapping configuré: {PRICE_MAPPING}")
-
     prices = []
     for mapping in PRICE_MAPPING:
         for item in data:
@@ -122,16 +112,13 @@ def get_as24_prices() -> list[dict]:
                 product_name == mapping['as24_product'].upper()):
 
                 price_ht = item.get('localCurrencyPriceVATExcl', 0)
-
-                if not price_ht or price_ht <= 0:
-                    log.warning(f"Prix invalide: {price_ht}")
-                    continue
-
-                prices.append({
-                    'fuel_type': mapping['fleetzen_type'],
-                    'price_ht': price_ht,
-                })
-                log.info(f"  ✓ {mapping['station']} - {mapping['as24_product']}: {price_ht}€/L")
+                if price_ht and price_ht > 0:
+                    prices.append({
+                        'fuel_type': mapping['fleetzen_type'],
+                        'price_ht': price_ht,
+                        'price_ttc': round(price_ht * 1.20, 4),
+                    })
+                    log.info(f"  ✓ {mapping['station']} - {mapping['as24_product']}: {price_ht}€/L HT")
                 break
 
     return prices
@@ -141,7 +128,7 @@ def save_to_supabase(prices: list[dict]) -> dict:
     if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
         raise ValueError("Configuration Supabase manquante")
 
-    log.info(f"Connexion à Supabase...")
+    log.info("Connexion à Supabase...")
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
     results = {'success': 0, 'errors': [], 'skipped': 0}
@@ -151,29 +138,36 @@ def save_to_supabase(prices: list[dict]) -> dict:
 
     for price in prices:
         try:
-            price_ttc = round(price['price_ht'] * 1.20, 4)
+            fuel_type = price['fuel_type']
+            price_ttc = price['price_ttc']
 
             # Vérifier si un prix existe déjà pour aujourd'hui
             existing_today = supabase.table('fuel_prices').select('id, price_per_liter').eq(
-                'fuel_type', price['fuel_type']
+                'fuel_type', fuel_type
             ).gte('effective_from', today_start).lte('effective_from', today_end).execute()
 
             if existing_today.data:
                 current_price = existing_today.data[0].get('price_per_liter')
                 if current_price and abs(float(current_price) - price_ttc) < 0.0001:
-                    log.info(f"  = {price['fuel_type']}: {price_ttc}€/L TTC (déjà présent)")
+                    log.info(f"  = {fuel_type}: {price_ttc}€/L TTC (déjà présent)")
                     results['skipped'] += 1
                 else:
                     supabase.table('fuel_prices').update({
                         'price_per_liter': price_ttc,
                         'updated_at': now.isoformat(),
                     }).eq('id', existing_today.data[0]['id']).execute()
-                    log.info(f"  ↻ {price['fuel_type']}: {current_price}€ → {price_ttc}€/L TTC (MAJ)")
+                    log.info(f"  ↻ {fuel_type}: {current_price}€ → {price_ttc}€/L TTC (MAJ)")
                     results['success'] += 1
             else:
-                # Insérer nouveau prix du jour
+                # 1. Fermer l'ancien prix actif (comme backfill)
+                supabase.table('fuel_prices').update({
+                    'is_active': False,
+                    'effective_until': today_start,
+                }).eq('fuel_type', fuel_type).eq('is_active', True).execute()
+
+                # 2. Insérer le nouveau prix du jour
                 supabase.table('fuel_prices').insert({
-                    'fuel_type': price['fuel_type'],
+                    'fuel_type': fuel_type,
                     'price_per_liter': price_ttc,
                     'is_active': True,
                     'effective_from': today_start,
@@ -181,7 +175,7 @@ def save_to_supabase(prices: list[dict]) -> dict:
                     'created_at': now.isoformat(),
                     'updated_at': now.isoformat(),
                 }).execute()
-                log.info(f"  ✓ {price['fuel_type']}: {price_ttc}€/L TTC (nouveau)")
+                log.info(f"  ✓ {fuel_type}: {price_ttc}€/L TTC (nouveau jour)")
                 results['success'] += 1
 
         except Exception as e:
@@ -194,7 +188,7 @@ def save_to_supabase(prices: list[dict]) -> dict:
 
 def main():
     log.info("=" * 50)
-    log.info("DÉMARRAGE SYNC AS24 → SUPABASE")
+    log.info("SYNC AS24 → SUPABASE")
     log.info("=" * 50)
 
     try:
@@ -209,10 +203,7 @@ def main():
         results = save_to_supabase(prices)
 
         log.info("\n" + "=" * 50)
-        log.info("RÉSUMÉ")
-        log.info("=" * 50)
-        log.info(f"Nouveaux/MAJ: {results['success']}/{len(prices)}")
-        log.info(f"Déjà présents: {results['skipped']}/{len(prices)}")
+        log.info(f"Nouveaux/MAJ: {results['success']} | Déjà présents: {results['skipped']}")
 
         if results['errors']:
             log.error(f"Erreurs: {len(results['errors'])}")
@@ -220,11 +211,11 @@ def main():
                 log.error(f"  - {error}")
             return 1
 
-        log.info("Sync terminé avec succès!")
+        log.info("Sync terminé!")
         return 0
 
     except Exception as e:
-        log.error(f"ERREUR FATALE: {e}")
+        log.error(f"ERREUR: {e}")
         return 1
 
 
