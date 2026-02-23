@@ -42,3 +42,6 @@ jobs:
           name: sync-logs-${{ github.run_number }}
           path: sync.log
           retention-days: 30
+
+      - name: Keepalive
+        uses: gautamkrishnar/keepalive-workflow@v2
