@@ -155,22 +155,15 @@ def main():
     log.info("RATTRAPAGE HISTORIQUE AS24 → SUPABASE")
     log.info("=" * 60)
 
-    # Dates
-    start_date = datetime(2025, 11, 18)
-    end_date = datetime.now()
+    # Dates - rattrapage des jours manquants (workflow cassé du 24/02 au 01/03)
+    start_date = datetime(2026, 2, 24)
+    end_date = datetime(2026, 3, 1)
 
     log.info(f"Période: {start_date.date()} → {end_date.date()}")
 
     # Récupérer le token AS24
     jwt_token = get_as24_token()
     log.info("Token AS24 récupéré")
-
-    # D'abord, supprimer les anciens prix pour éviter les conflits
-    log.info("Nettoyage des anciens prix...")
-    for fuel_type in ['Diesel', 'AdBlue', 'GNR']:
-        resp = supabase_request('DELETE', 'fuel_prices', params=f'?fuel_type=eq.{fuel_type}')
-        log.info(f"  {fuel_type}: {resp.status_code}")
-    log.info("Anciens prix supprimés")
 
     # Parcourir chaque jour
     current_date = start_date
@@ -192,7 +185,15 @@ def main():
             fuel_type = price['fuel_type']
             price_ttc = price['price_ttc']
 
-            # Insérer un prix pour CHAQUE jour (pas juste les changements)
+            # Vérifier si un prix existe déjà pour ce jour
+            day_start = current_date.strftime('%Y-%m-%dT00:00:00')
+            day_end = current_date.strftime('%Y-%m-%dT23:59:59')
+            existing = supabase_request('GET', 'fuel_prices',
+                params=f'?fuel_type=eq.{fuel_type}&effective_from=gte.{day_start}&effective_from=lte.{day_end}&select=id')
+            if existing.status_code == 200 and existing.json():
+                log.info(f"  ⏭ {fuel_type} - déjà présent pour {date_str}")
+                continue
+
             # Fermer l'ancien prix actif
             supabase_request('PATCH', 'fuel_prices',
                 data={
