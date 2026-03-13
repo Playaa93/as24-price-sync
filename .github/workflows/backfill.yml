@@ -2,10 +2,20 @@ name: Backfill Historical Prices
 
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Mode: "all" pour mars→nov 2025, ou mois specifiques "2025-03 2025-04"'
+        required: true
+        default: 'all'
+      dry_run:
+        description: 'Dry-run (simuler sans ecrire)'
+        type: boolean
+        default: false
 
 jobs:
   backfill:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
 
     steps:
       - name: Checkout
@@ -15,6 +25,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
 
       - name: Install dependencies
         run: |
@@ -28,12 +39,23 @@ jobs:
           AS24_PASSWORD: ${{ secrets.AS24_PASSWORD }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-        run: python backfill_history.py
+        run: |
+          ARGS=""
+          if [ "${{ inputs.mode }}" = "all" ]; then
+            ARGS="--all"
+          else
+            ARGS="--month ${{ inputs.mode }}"
+          fi
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
+          echo "Running: python backfill_history.py $ARGS"
+          python backfill_history.py $ARGS
 
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: backfill-logs
+          name: backfill-logs-${{ github.run_number }}
           path: backfill.log
-          retention-days: 7
+          retention-days: 30
