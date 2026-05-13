@@ -2,7 +2,7 @@ name: AS24 Price Sync
 
 on:
   schedule:
-    # Tous les jours à 7h00 (heure de Paris = 6h00 UTC en hiver, 5h00 UTC en été)
+    # Tous les jours à 06:00 UTC (07:00 Paris en hiver, 08:00 Paris en été)
     - cron: '0 6 * * *'
   workflow_dispatch: # Permet le déclenchement manuel
 
