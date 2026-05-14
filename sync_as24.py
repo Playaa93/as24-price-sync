@@ -109,6 +109,10 @@ def get_as24_prices() -> list[dict]:
     data = response.json()
     log.info(f"Données reçues: {len(data)} entrées")
 
+    if data:
+        log.info(f"[PROBE] Clés d'une entrée AS24: {sorted(data[0].keys())}")
+        log.info(f"[PROBE] Exemple: {data[0]}")
+
     station_upper = STATION.upper()
     mapping_upper = {k.upper(): v for k, v in PRODUCT_MAPPING.items()}
 
