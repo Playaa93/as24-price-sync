@@ -41,10 +41,22 @@ AS24_PASSWORD = os.environ.get('AS24_PASSWORD', '')
 SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
 SUPABASE_SERVICE_KEY = os.environ.get('SUPABASE_SERVICE_KEY', '')
 
-# Mapping AS24 → FleetZen
-PRICE_MAPPING = [
-    {"station": "AIRE DE GALANDE", "as24_product": "Gazole", "fleetzen_type": "Diesel"},
-    {"station": "AIRE DE GALANDE", "as24_product": "AD Blue", "fleetzen_type": "AdBlue"},
+# Mapping AS24 → FleetZen (aligné avec sync_as24.py)
+STATION = "AIRE DE GALANDE"
+PRODUCT_MAPPING = {
+    "Gazole": "Diesel",
+    "Gazole B7": "Diesel",
+    "AD Blue": "AdBlue",
+    "AdBlue": "AdBlue",
+    "GNR": "GNR",
+    "HVO": "HVO",
+    "HVO100": "HVO",
+    "SP95": "SP95",
+    "SP95-E10": "E10",
+    "SP98": "SP98",
+}
+# Ancienne station MITRY MORY conservée pour la rétro-compatibilité du backfill
+EXTRA_STATIONS = [
     {"station": "MITRY MORY", "as24_product": "GNR", "fleetzen_type": "GNR"},
 ]
 
@@ -153,19 +165,45 @@ def get_prices_for_date(jwt_token: str, target_date: datetime) -> list[dict]:
 
     data = response.json()
 
+    station_upper = STATION.upper()
+    mapping_upper = {k.upper(): v for k, v in PRODUCT_MAPPING.items()}
+
     prices = []
-    for mapping in PRICE_MAPPING:
+    seen_fleetzen_types: set[str] = set()
+
+    for item in data:
+        if item.get('stationName', '').upper() != station_upper:
+            continue
+
+        product_name = item.get('productName', '')
+        fleetzen_type = mapping_upper.get(product_name.upper())
+
+        if not fleetzen_type:
+            continue
+
+        price_ht = item.get('localCurrencyPriceVATExcl', 0)
+        if not price_ht or price_ht <= 0:
+            continue
+
+        if fleetzen_type in seen_fleetzen_types:
+            continue
+        seen_fleetzen_types.add(fleetzen_type)
+
+        prices.append({
+            'fuel_type': fleetzen_type,
+            'price_ht': price_ht,
+            'price_ttc': round(price_ht * 1.20, 4),
+        })
+
+    for extra in EXTRA_STATIONS:
         for item in data:
-            station_name = item.get('stationName', '').upper()
-            product_name = item.get('productName', '').upper()
-
-            if (station_name == mapping['station'].upper() and
-                product_name == mapping['as24_product'].upper()):
-
+            if (item.get('stationName', '').upper() == extra['station'].upper() and
+                item.get('productName', '').upper() == extra['as24_product'].upper()):
                 price_ht = item.get('localCurrencyPriceVATExcl', 0)
-                if price_ht and price_ht > 0:
+                if price_ht and price_ht > 0 and extra['fleetzen_type'] not in seen_fleetzen_types:
+                    seen_fleetzen_types.add(extra['fleetzen_type'])
                     prices.append({
-                        'fuel_type': mapping['fleetzen_type'],
+                        'fuel_type': extra['fleetzen_type'],
                         'price_ht': price_ht,
                         'price_ttc': round(price_ht * 1.20, 4),
                     })

@@ -32,7 +32,6 @@ jobs:
           AS24_PASSWORD: ${{ secrets.AS24_PASSWORD }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          PRICE_MAPPING: ${{ secrets.PRICE_MAPPING }}
         run: python sync_as24.py
 
       - name: Upload logs

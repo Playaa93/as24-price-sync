@@ -5,7 +5,6 @@ Synchronisation automatique des prix AS24 vers Supabase.
 
 import os
 import sys
-import json
 import logging
 from datetime import datetime
 from playwright.sync_api import sync_playwright
@@ -28,11 +27,19 @@ AS24_PASSWORD = os.environ.get('AS24_PASSWORD', '')
 SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
 SUPABASE_SERVICE_KEY = os.environ.get('SUPABASE_SERVICE_KEY', '')
 
-PRICE_MAPPING_JSON = os.environ.get('PRICE_MAPPING', '[]')
-try:
-    PRICE_MAPPING = json.loads(PRICE_MAPPING_JSON)
-except json.JSONDecodeError:
-    PRICE_MAPPING = []
+STATION = "AIRE DE GALANDE"
+PRODUCT_MAPPING = {
+    "Gazole": "Diesel",
+    "Gazole B7": "Diesel",
+    "AD Blue": "AdBlue",
+    "AdBlue": "AdBlue",
+    "GNR": "GNR",
+    "HVO": "HVO",
+    "HVO100": "HVO",
+    "SP95": "SP95",
+    "SP95-E10": "E10",
+    "SP98": "SP98",
+}
 
 
 def get_as24_prices() -> list[dict]:
@@ -102,24 +109,38 @@ def get_as24_prices() -> list[dict]:
     data = response.json()
     log.info(f"Données reçues: {len(data)} entrées")
 
+    station_upper = STATION.upper()
+    mapping_upper = {k.upper(): v for k, v in PRODUCT_MAPPING.items()}
+
     prices = []
-    for mapping in PRICE_MAPPING:
-        for item in data:
-            station_name = item.get('stationName', '').upper()
-            product_name = item.get('productName', '').upper()
+    seen_fleetzen_types: set[str] = set()
 
-            if (station_name == mapping['station'].upper() and
-                product_name == mapping['as24_product'].upper()):
+    for item in data:
+        if item.get('stationName', '').upper() != station_upper:
+            continue
 
-                price_ht = item.get('localCurrencyPriceVATExcl', 0)
-                if price_ht and price_ht > 0:
-                    prices.append({
-                        'fuel_type': mapping['fleetzen_type'],
-                        'price_ht': price_ht,
-                        'price_ttc': round(price_ht * 1.20, 4),
-                    })
-                    log.info(f"  ✓ {mapping['station']} - {mapping['as24_product']}: {price_ht}€/L HT")
-                break
+        product_name = item.get('productName', '')
+        fleetzen_type = mapping_upper.get(product_name.upper())
+
+        if not fleetzen_type:
+            log.warning(f"  ⚠️  Produit non mappé chez {STATION}: {product_name!r} — ajoute-le dans PRODUCT_MAPPING")
+            continue
+
+        price_ht = item.get('localCurrencyPriceVATExcl', 0)
+        if not price_ht or price_ht <= 0:
+            continue
+
+        if fleetzen_type in seen_fleetzen_types:
+            log.warning(f"  ⚠️  {fleetzen_type} déjà rempli — produit ignoré: {product_name!r}")
+            continue
+
+        seen_fleetzen_types.add(fleetzen_type)
+        prices.append({
+            'fuel_type': fleetzen_type,
+            'price_ht': price_ht,
+            'price_ttc': round(price_ht * 1.20, 4),
+        })
+        log.info(f"  ✓ {STATION} - {product_name} → {fleetzen_type}: {price_ht}€/L HT")
 
     return prices
 
