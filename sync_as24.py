@@ -28,6 +28,10 @@ SUPABASE_URL = os.environ.get('SUPABASE_URL', '')
 SUPABASE_SERVICE_KEY = os.environ.get('SUPABASE_SERVICE_KEY', '')
 
 STATION = "AIRE DE GALANDE"
+# Stations de secours pour les produits absents de AIRE DE GALANDE (ex: GNR)
+EXTRA_STATIONS = [
+    {"station": "MITRY MORY", "as24_product": "GNR", "fleetzen_type": "GNR"},
+]
 PRODUCT_MAPPING = {
     "Gazole": "Diesel",
     "Gazole B7": "Diesel",
@@ -145,6 +149,25 @@ def get_as24_prices() -> list[dict]:
             'price_ttc': round(price_ht * 1.20, 4),
         })
         log.info(f"  ✓ {STATION} - {product_name} → {fleetzen_type}: {price_ht}€/L HT")
+
+    for extra in EXTRA_STATIONS:
+        if extra['fleetzen_type'] in seen_fleetzen_types:
+            continue
+        for item in data:
+            if (item.get('stationName', '').upper() == extra['station'].upper() and
+                item.get('productName', '').upper() == extra['as24_product'].upper()):
+                price_ht = item.get('localCurrencyPriceVATExcl', 0)
+                if price_ht and price_ht > 0:
+                    seen_fleetzen_types.add(extra['fleetzen_type'])
+                    prices.append({
+                        'fuel_type': extra['fleetzen_type'],
+                        'price_ht': price_ht,
+                        'price_ttc': round(price_ht * 1.20, 4),
+                    })
+                    log.info(f"  ✓ {extra['station']} (secours) - {extra['as24_product']} → {extra['fleetzen_type']}: {price_ht}€/L HT")
+                break
+        if extra['fleetzen_type'] not in seen_fleetzen_types:
+            log.warning(f"  ⚠️  {extra['fleetzen_type']} introuvable, même chez {extra['station']} — prix non synchronisé aujourd'hui")
 
     return prices
 

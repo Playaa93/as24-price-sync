@@ -222,8 +222,9 @@ def get_month_range(month_str: str) -> tuple[datetime, datetime]:
     first_day = datetime(year, month, 1)
     last_day_num = monthrange(year, month)[1]
     last_day = datetime(year, month, last_day_num)
-    # Ne pas dépasser le 17/11/2025 (début du cron daily)
-    cutoff = datetime(2025, 11, 17)
+    # Ne pas dépasser aujourd'hui (le cron daily prend le relais en temps réel)
+    today = datetime.now()
+    cutoff = datetime(today.year, today.month, today.day)
     if last_day > cutoff:
         last_day = cutoff
     return first_day, last_day
