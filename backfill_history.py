@@ -279,6 +279,15 @@ def process_month(month_str: str, jwt_token: str, dry_run: bool = False) -> dict
                 stats['inserted'] += 1
                 continue
 
+            # La veille a pu être clôturée par-dessus le jour manquant
+            # (effective_until = jour+1) : la contrainte unique
+            # (fuel_type, is_active, effective_until) bloquerait l'insertion.
+            # On raccourcit cette ligne pour qu'elle s'arrête au début du trou.
+            next_day = (current_date + timedelta(days=1)).isoformat()
+            supabase_request('PATCH', 'fuel_prices',
+                data={'effective_until': current_date.isoformat()},
+                params=f'?fuel_type=eq.{fuel_type}&is_active=eq.false&effective_until=eq.{next_day}&effective_from=lt.{current_date.isoformat()}')
+
             # Insérer le nouveau prix (pas de is_active pour le backfill historique)
             result = supabase_request('POST', 'fuel_prices',
                 data={
