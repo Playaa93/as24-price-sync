@@ -9,6 +9,7 @@ import logging
 import math
 import os
 import sys
+import time as time_module
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Iterable
 from zoneinfo import ZoneInfo
@@ -63,6 +64,34 @@ def parse_target_date(raw: str | None, now: datetime | None = None) -> date:
             raise As24SyncError("--date doit être au format YYYY-MM-DD") from exc
     paris_now = (now or datetime.now(tz=PARIS)).astimezone(PARIS)
     return paris_now.date() - timedelta(days=1)
+
+
+def parse_target_days(
+    raw_date: str | None,
+    raw_from: str | None,
+    raw_to: str | None,
+    now: datetime | None = None,
+) -> list[date]:
+    if raw_from is None and raw_to is not None:
+        raise As24SyncError("--to nécessite --from")
+    if raw_from is None:
+        return [parse_target_date(raw_date, now)]
+    if raw_date is not None:
+        raise As24SyncError("--date et --from sont mutuellement exclusifs")
+    try:
+        start = date.fromisoformat(raw_from)
+    except ValueError as exc:
+        raise As24SyncError("--from doit être au format YYYY-MM-DD") from exc
+    if raw_to is None:
+        end = parse_target_date(None, now)
+    else:
+        try:
+            end = date.fromisoformat(raw_to)
+        except ValueError as exc:
+            raise As24SyncError("--to doit être au format YYYY-MM-DD") from exc
+    if start > end:
+        raise As24SyncError("--from doit précéder --to")
+    return [start + timedelta(days=offset) for offset in range((end - start).days + 1)]
 
 
 def paris_day_bounds_ms(target: date) -> tuple[int, int]:
@@ -420,6 +449,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Jour AS24 à importer (YYYY-MM-DD). Par défaut: J-1, heure de Paris.",
     )
     parser.add_argument(
+        "--from",
+        dest="from_date",
+        help="Début de plage à importer (YYYY-MM-DD), pour un backfill multi-jours.",
+    )
+    parser.add_argument(
+        "--to",
+        dest="to_date",
+        help="Fin de plage à importer (YYYY-MM-DD). Par défaut: J-1, heure de Paris.",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Récupère et valide les données sans les envoyer.",
@@ -427,47 +466,99 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def _fetch_day_with_reauth(
+    jwt_token: str,
+    day: date,
+    session: Any,
+    reauthenticate: Any,
+) -> tuple[list[dict[str, Any]], str]:
+    try:
+        return fetch_as24_transactions(jwt_token, day, session=session), jwt_token
+    except As24SyncError as exc:
+        if "HTTP 401" not in str(exc) and "HTTP 403" not in str(exc):
+            raise
+        log.info("Session AS24 expirée, reconnexion")
+        jwt_token = reauthenticate()
+        return fetch_as24_transactions(jwt_token, day, session=session), jwt_token
+
+
 def run(args: argparse.Namespace) -> int:
-    target = parse_target_date(args.date)
+    days = parse_target_days(args.date, args.from_date, args.to_date)
     client_id = require_env("AS24_CLIENT_ID")
     username = require_env("AS24_USERNAME")
     password = require_env("AS24_PASSWORD")
 
-    log.info("Synchronisation des transactions AS24 du %s", target.isoformat())
-    jwt_token = authenticate_as24(client_id, username, password)
-    requests = _requests_module()
-    with requests.Session() as session:
-        raw_rows = fetch_as24_transactions(jwt_token, target, session=session)
-        log.info("AS24 a retourné %s transaction(s) brute(s)", len(raw_rows))
+    if len(days) == 1:
+        log.info("Synchronisation des transactions AS24 du %s", days[0].isoformat())
+    else:
+        log.info(
+            "Backfill des transactions AS24 du %s au %s (%s jours)",
+            days[0].isoformat(),
+            days[-1].isoformat(),
+            len(days),
+        )
 
-        transactions = normalize_all_transactions(raw_rows)
-        if not transactions:
-            log.info("Aucune transaction à importer pour cette journée")
-            return 0
-
-        if args.dry_run:
-            log.info("Dry-run terminé: %s transaction(s) validée(s)", len(transactions))
-            return 0
-
+    destination_url = ""
+    destination_token = ""
+    if not args.dry_run:
         destination_url = require_env("DASHDOC_AS24_IMPORT_URL")
         destination_token = require_env("DASHDOC_AS24_IMPORT_TOKEN")
-        imported = 0
-        batch_count = 0
-        for batch_count, batch in enumerate(transaction_batches(transactions), start=1):
-            result = import_batch(
-                destination_url,
-                destination_token,
-                batch,
-                session=session,
-            )
-            imported += int(result.get("imported", len(batch)))
-            log.info("Lot %s importé: %s transaction(s)", batch_count, len(batch))
 
-    log.info(
-        "Synchronisation terminée: %s transaction(s), %s lot(s)",
-        imported,
-        batch_count,
-    )
+    def reauthenticate() -> str:
+        return authenticate_as24(client_id, username, password)
+
+    jwt_token = reauthenticate()
+    requests = _requests_module()
+    total_transactions = 0
+    total_imported = 0
+    total_batches = 0
+    with requests.Session() as session:
+        for index, day in enumerate(days):
+            if index:
+                time_module.sleep(0.3)
+            try:
+                raw_rows, jwt_token = _fetch_day_with_reauth(
+                    jwt_token, day, session, reauthenticate
+                )
+                log.info(
+                    "AS24 a retourné %s transaction(s) brute(s) pour le %s",
+                    len(raw_rows),
+                    day.isoformat(),
+                )
+                transactions = normalize_all_transactions(raw_rows)
+                total_transactions += len(transactions)
+                if not transactions or args.dry_run:
+                    continue
+                for batch in transaction_batches(transactions):
+                    result = import_batch(
+                        destination_url,
+                        destination_token,
+                        batch,
+                        session=session,
+                    )
+                    total_batches += 1
+                    total_imported += int(result.get("imported", len(batch)))
+                    log.info(
+                        "Lot %s importé: %s transaction(s)",
+                        total_batches,
+                        len(batch),
+                    )
+            except As24SyncError as exc:
+                raise As24SyncError(
+                    f"{exc} — relancer avec --from {day.isoformat()}"
+                    f" --to {days[-1].isoformat()} pour reprendre"
+                ) from exc
+
+    if args.dry_run:
+        log.info("Dry-run terminé: %s transaction(s) validée(s)", total_transactions)
+    elif total_transactions == 0:
+        log.info("Aucune transaction à importer sur la période")
+    else:
+        log.info(
+            "Synchronisation terminée: %s transaction(s), %s lot(s)",
+            total_imported,
+            total_batches,
+        )
     return 0
 
 

@@ -10,6 +10,7 @@ from sync_transactions import (
     normalize_as24_transaction,
     paris_day_bounds_ms,
     parse_target_date,
+    parse_target_days,
     transaction_batches,
 )
 
@@ -32,6 +33,42 @@ class DateFilterTests(unittest.TestCase):
         self.assertEqual(payload["supportOffers"], [])
         self.assertEqual(payload["products"], [])
         self.assertNotIn("state", payload)
+
+
+class TargetDaysTests(unittest.TestCase):
+    NOW = datetime(2026, 7, 15, 22, 30, tzinfo=timezone.utc)
+
+    def test_single_day_without_range(self):
+        self.assertEqual(
+            parse_target_days(None, None, None, self.NOW),
+            [date(2026, 7, 15)],
+        )
+        self.assertEqual(
+            parse_target_days("2026-07-14", None, None, self.NOW),
+            [date(2026, 7, 14)],
+        )
+
+    def test_range_is_inclusive_and_ordered(self):
+        days = parse_target_days(None, "2026-07-12", "2026-07-14", self.NOW)
+        self.assertEqual(
+            days,
+            [date(2026, 7, 12), date(2026, 7, 13), date(2026, 7, 14)],
+        )
+
+    def test_range_defaults_to_yesterday(self):
+        days = parse_target_days(None, "2026-07-13", None, self.NOW)
+        self.assertEqual(days[0], date(2026, 7, 13))
+        self.assertEqual(days[-1], date(2026, 7, 15))
+
+    def test_rejects_invalid_combinations(self):
+        with self.assertRaisesRegex(As24SyncError, "--to nécessite --from"):
+            parse_target_days(None, None, "2026-07-14", self.NOW)
+        with self.assertRaisesRegex(As24SyncError, "mutuellement exclusifs"):
+            parse_target_days("2026-07-14", "2026-07-12", None, self.NOW)
+        with self.assertRaisesRegex(As24SyncError, "--from doit précéder --to"):
+            parse_target_days(None, "2026-07-14", "2026-07-12", self.NOW)
+        with self.assertRaisesRegex(As24SyncError, "format YYYY-MM-DD"):
+            parse_target_days(None, "14/07/2026", None, self.NOW)
 
 
 class NormalizeTests(unittest.TestCase):

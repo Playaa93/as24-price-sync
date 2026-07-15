@@ -10,6 +10,14 @@ on:
         description: 'Jour à importer (YYYY-MM-DD). Vide = J-1 heure de Paris.'
         required: false
         type: string
+      from_date:
+        description: 'Backfill: début de plage (YYYY-MM-DD). Exclusif avec target_date.'
+        required: false
+        type: string
+      to_date:
+        description: 'Backfill: fin de plage (YYYY-MM-DD). Vide = J-1 heure de Paris.'
+        required: false
+        type: string
       dry_run:
         description: 'Récupérer et valider sans envoyer vers Optimove'
         required: false
@@ -26,7 +34,8 @@ concurrency:
 jobs:
   sync-transactions:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Large pour couvrir un backfill multi-mois ; le run quotidien reste < 1 min.
+    timeout-minutes: 120
 
     steps:
       - name: Checkout
@@ -54,10 +63,14 @@ jobs:
           DASHDOC_AS24_IMPORT_URL: ${{ secrets.DASHDOC_AS24_IMPORT_URL }}
           DASHDOC_AS24_IMPORT_TOKEN: ${{ secrets.DASHDOC_AS24_IMPORT_TOKEN }}
           TARGET_DATE: ${{ inputs.target_date }}
+          FROM_DATE: ${{ inputs.from_date }}
+          TO_DATE: ${{ inputs.to_date }}
           DRY_RUN: ${{ inputs.dry_run }}
         run: |
           args=()
           if [[ -n "$TARGET_DATE" ]]; then args+=(--date "$TARGET_DATE"); fi
+          if [[ -n "$FROM_DATE" ]]; then args+=(--from "$FROM_DATE"); fi
+          if [[ -n "$TO_DATE" ]]; then args+=(--to "$TO_DATE"); fi
           if [[ "$DRY_RUN" == "true" ]]; then args+=(--dry-run); fi
           python sync_transactions.py "${args[@]}"
 

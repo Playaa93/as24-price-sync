@@ -33,6 +33,20 @@ la recherche et l'affichage. L'identifiant AS24 rend chaque relance idempotente.
 Le workflow peut aussi être lancé manuellement avec une date `YYYY-MM-DD` et
 une option `dry_run` qui récupère et valide AS24 sans envoyer les données.
 
+### Backfill de l'historique
+
+Pour importer une plage complète (jour par jour, upsert idempotent), lancer le
+workflow avec `from_date` (et optionnellement `to_date`, J-1 par défaut), ou en
+local :
+
+```bash
+python sync_transactions.py --from 2025-07-01 --to 2026-07-14
+```
+
+En cas d'échec en cours de route, le message d'erreur indique la commande
+`--from … --to …` à relancer pour reprendre là où l'import s'est arrêté. La
+session AS24 est renouvelée automatiquement si elle expire pendant la plage.
+
 ### Exécution locale
 
 ```bash
@@ -43,7 +57,10 @@ python sync_transactions.py --date 2026-07-14 --dry-run
 ```
 
 Sans `--date`, le script prend automatiquement J-1 dans le fuseau
-`Europe/Paris`, y compris lors des changements d'heure.
+`Europe/Paris`, y compris lors des changements d'heure. Attention : les péages
+autoroutiers (PASSango/SANEF) peuvent apparaître dans l'extranet plusieurs
+heures après la fin de la journée — c'est pour cela que le cron tourne le
+lendemain matin et qu'un import lancé le soir même peut être incomplet.
 
 ## Prix carburant
 
