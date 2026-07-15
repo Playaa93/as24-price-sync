@@ -1,0 +1,71 @@
+name: AS24 Daily Transactions
+
+on:
+  schedule:
+    # 06:20 UTC : J-1 est consolidé avant l'import du matin.
+    - cron: '20 6 * * *'
+  workflow_dispatch:
+    inputs:
+      target_date:
+        description: 'Jour à importer (YYYY-MM-DD). Vide = J-1 heure de Paris.'
+        required: false
+        type: string
+      dry_run:
+        description: 'Récupérer et valider sans envoyer vers Optimove'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: as24-daily-transactions
+  cancel-in-progress: false
+
+jobs:
+  sync-transactions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          playwright install chromium
+
+      - name: Run unit tests
+        run: python -m unittest -v test_sync_transactions.py
+
+      - name: Import AS24 transactions
+        env:
+          AS24_CLIENT_ID: ${{ secrets.AS24_CLIENT_ID }}
+          AS24_USERNAME: ${{ secrets.AS24_USERNAME }}
+          AS24_PASSWORD: ${{ secrets.AS24_PASSWORD }}
+          DASHDOC_AS24_IMPORT_URL: ${{ secrets.DASHDOC_AS24_IMPORT_URL }}
+          DASHDOC_AS24_IMPORT_TOKEN: ${{ secrets.DASHDOC_AS24_IMPORT_TOKEN }}
+          TARGET_DATE: ${{ inputs.target_date }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          args=()
+          if [[ -n "$TARGET_DATE" ]]; then args+=(--date "$TARGET_DATE"); fi
+          if [[ "$DRY_RUN" == "true" ]]; then args+=(--dry-run); fi
+          python sync_transactions.py "${args[@]}"
+
+      - name: Upload execution log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: transactions-sync-log-${{ github.run_number }}
+          path: transactions-sync.log
+          if-no-files-found: ignore
+          retention-days: 30
