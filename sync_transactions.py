@@ -271,9 +271,28 @@ def _iso_timestamp(value: Any) -> str:
 
     if parsed is None:
         raise As24SyncError("transactionDate AS24 invalide")
+    if parsed.year < 2000:
+        # Un timestamp 0 ou tronqué donnerait une date 1970 silencieusement fausse.
+        raise As24SyncError("transactionDate AS24 invalide")
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=PARIS)
     return parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _transaction_timestamp(row: dict[str, Any]) -> str:
+    for field in ("transactionDate", "exitTransactionDate"):
+        value = row.get(field)
+        if value is None:
+            continue
+        try:
+            return _iso_timestamp(value)
+        except As24SyncError:
+            continue
+    raise As24SyncError(
+        "date de transaction AS24 invalide"
+        f" (transactionDate={row.get('transactionDate')!r},"
+        f" exitTransactionDate={row.get('exitTransactionDate')!r})"
+    )
 
 
 def _external_id(row: dict[str, Any]) -> str:
@@ -340,7 +359,7 @@ def normalize_as24_transaction(row: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "external_id": _external_id(row),
-        "transaction_at": _iso_timestamp(row.get("transactionDate")),
+        "transaction_at": _transaction_timestamp(row),
         "card_reference": _card_reference(row),
         "vehicle_registration": _vehicle_registration(row),
         "station_name": _text(row.get("stationName")),
@@ -365,7 +384,10 @@ def normalize_all_transactions(rows: Iterable[dict[str, Any]]) -> list[dict[str,
         try:
             transaction = normalize_as24_transaction(row)
         except As24SyncError as exc:
-            raise As24SyncError(f"Ligne AS24 {index}: {exc}") from exc
+            reference = row.get("transactionId") or row.get("transactionNumber")
+            raise As24SyncError(
+                f"Ligne AS24 {index} (id={reference!r}): {exc}"
+            ) from exc
         external_id = transaction["external_id"]
         if external_id in normalized:
             if normalized[external_id]["raw_payload"] == transaction["raw_payload"]:

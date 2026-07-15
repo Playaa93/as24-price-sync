@@ -134,6 +134,32 @@ class NormalizeTests(unittest.TestCase):
         with self.assertRaisesRegex(As24SyncError, "identifiant stable"):
             normalize_as24_transaction({"transactionDate": 1784104200000})
 
+    def test_falls_back_to_exit_date_when_transaction_date_invalid(self):
+        toll = {
+            "transactionId": "TOLL-2",
+            "transactionDate": 0,
+            "exitTransactionDate": 1784104200000,
+            "productLabel": "Télépéage",
+        }
+        result = normalize_as24_transaction(toll)
+        self.assertEqual(result["transaction_at"], "2026-07-15T08:30:00Z")
+
+    def test_reports_both_values_when_no_date_is_usable(self):
+        toll = {
+            "transactionId": "TOLL-3",
+            "transactionDate": 0,
+            "exitTransactionDate": None,
+        }
+        with self.assertRaisesRegex(
+            As24SyncError, r"transactionDate=0, exitTransactionDate=None"
+        ):
+            normalize_as24_transaction(toll)
+
+    def test_error_includes_row_reference(self):
+        rows = [{"transactionId": "BAD-1", "transactionDate": 0}]
+        with self.assertRaisesRegex(As24SyncError, r"id='BAD-1'"):
+            normalize_all_transactions(rows)
+
     def test_deduplicates_only_identical_as24_rows(self):
         rows = [self.raw, dict(self.raw)]
         result = normalize_all_transactions(rows)
