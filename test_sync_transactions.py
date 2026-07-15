@@ -144,21 +144,36 @@ class NormalizeTests(unittest.TestCase):
         result = normalize_as24_transaction(toll)
         self.assertEqual(result["transaction_at"], "2026-07-15T08:30:00Z")
 
-    def test_reports_both_values_when_no_date_is_usable(self):
+    def test_falls_back_to_invoice_date_for_service_rows(self):
+        service = {
+            "transactionId": "SV8290PFA1960218",
+            "transactionDate": None,
+            "exitTransactionDate": None,
+            "invoiceDate": 1784104200000,
+            "productLabel": "Frais de service",
+        }
+        result = normalize_as24_transaction(service)
+        self.assertEqual(result["transaction_at"], "2026-07-15T08:30:00Z")
+
+    def test_reports_all_values_when_no_date_is_usable(self):
         toll = {
             "transactionId": "TOLL-3",
             "transactionDate": 0,
             "exitTransactionDate": None,
         }
         with self.assertRaisesRegex(
-            As24SyncError, r"transactionDate=0, exitTransactionDate=None"
+            As24SyncError,
+            r"transactionDate=0, exitTransactionDate=None, invoiceDate=None",
         ):
             normalize_as24_transaction(toll)
 
-    def test_error_includes_row_reference(self):
-        rows = [{"transactionId": "BAD-1", "transactionDate": 0}]
-        with self.assertRaisesRegex(As24SyncError, r"id='BAD-1'"):
-            normalize_all_transactions(rows)
+    def test_skips_dateless_rows_and_keeps_the_rest(self):
+        dateless = {"transactionId": "BAD-1", "transactionDate": 0}
+        with self.assertLogs("as24.transactions", level="WARNING") as captured:
+            result = normalize_all_transactions([dateless, self.raw])
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["external_id"], "987654")
+        self.assertIn("BAD-1", captured.output[0])
 
     def test_deduplicates_only_identical_as24_rows(self):
         rows = [self.raw, dict(self.raw)]

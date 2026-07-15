@@ -30,6 +30,10 @@ class As24SyncError(RuntimeError):
     """Erreur contrôlée du flux de synchronisation."""
 
 
+class As24MissingDateError(As24SyncError):
+    """Ligne AS24 sans aucune date exploitable (ignorée avec avertissement)."""
+
+
 def configure_logging() -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -280,7 +284,7 @@ def _iso_timestamp(value: Any) -> str:
 
 
 def _transaction_timestamp(row: dict[str, Any]) -> str:
-    for field in ("transactionDate", "exitTransactionDate"):
+    for field in ("transactionDate", "exitTransactionDate", "invoiceDate"):
         value = row.get(field)
         if value is None:
             continue
@@ -288,10 +292,11 @@ def _transaction_timestamp(row: dict[str, Any]) -> str:
             return _iso_timestamp(value)
         except As24SyncError:
             continue
-    raise As24SyncError(
+    raise As24MissingDateError(
         "date de transaction AS24 invalide"
         f" (transactionDate={row.get('transactionDate')!r},"
-        f" exitTransactionDate={row.get('exitTransactionDate')!r})"
+        f" exitTransactionDate={row.get('exitTransactionDate')!r},"
+        f" invoiceDate={row.get('invoiceDate')!r})"
     )
 
 
@@ -381,10 +386,18 @@ def normalize_as24_transaction(row: dict[str, Any]) -> dict[str, Any]:
 def normalize_all_transactions(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     normalized: dict[str, dict[str, Any]] = {}
     for index, row in enumerate(rows):
+        reference = row.get("transactionId") or row.get("transactionNumber")
         try:
             transaction = normalize_as24_transaction(row)
+        except As24MissingDateError as exc:
+            log.warning(
+                "Ligne AS24 %s (id=%r) ignorée, aucune date exploitable: %s",
+                index,
+                reference,
+                exc,
+            )
+            continue
         except As24SyncError as exc:
-            reference = row.get("transactionId") or row.get("transactionNumber")
             raise As24SyncError(
                 f"Ligne AS24 {index} (id={reference!r}): {exc}"
             ) from exc
