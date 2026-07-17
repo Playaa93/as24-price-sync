@@ -2,12 +2,13 @@ name: AS24 Daily Transactions
 
 on:
   schedule:
-    # 06:20 UTC : J-1 est consolidé avant l'import du matin.
+    # Deux reprises quotidiennes de J-7 à J-1 pour récupérer les remontées AS24 tardives.
     - cron: '20 6 * * *'
+    - cron: '20 14 * * *'
   workflow_dispatch:
     inputs:
       target_date:
-        description: 'Jour à importer (YYYY-MM-DD). Vide = J-1 heure de Paris.'
+        description: 'Jour à importer (YYYY-MM-DD). Vide = reprise glissante J-7 à J-1.'
         required: false
         type: string
       from_date:
@@ -34,7 +35,7 @@ concurrency:
 jobs:
   sync-transactions:
     runs-on: ubuntu-latest
-    # Large pour couvrir un backfill multi-mois ; le run quotidien reste < 1 min.
+    # Large pour couvrir un backfill multi-mois ; les reprises glissantes restent courtes.
     timeout-minutes: 120
 
     steps:

@@ -38,11 +38,21 @@ class DateFilterTests(unittest.TestCase):
 class TargetDaysTests(unittest.TestCase):
     NOW = datetime(2026, 7, 15, 22, 30, tzinfo=timezone.utc)
 
-    def test_single_day_without_range(self):
+    def test_default_replays_last_seven_complete_days(self):
         self.assertEqual(
             parse_target_days(None, None, None, self.NOW),
-            [date(2026, 7, 15)],
+            [
+                date(2026, 7, 9),
+                date(2026, 7, 10),
+                date(2026, 7, 11),
+                date(2026, 7, 12),
+                date(2026, 7, 13),
+                date(2026, 7, 14),
+                date(2026, 7, 15),
+            ],
         )
+
+    def test_explicit_date_keeps_single_day_behavior(self):
         self.assertEqual(
             parse_target_days("2026-07-14", None, None, self.NOW),
             [date(2026, 7, 14)],

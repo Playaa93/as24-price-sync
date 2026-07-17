@@ -20,6 +20,7 @@ TRANSACTIONS_URL = (
     "https://extranet.as24.com/myas24/secured/transactions/getListTransactions"
 )
 PARIS = ZoneInfo("Europe/Paris")
+DEFAULT_LOOKBACK_DAYS = 7
 MAX_BATCH_ITEMS = 1_000
 MAX_BATCH_BYTES = 1_500_000
 
@@ -79,7 +80,14 @@ def parse_target_days(
     if raw_from is None and raw_to is not None:
         raise As24SyncError("--to nécessite --from")
     if raw_from is None:
-        return [parse_target_date(raw_date, now)]
+        end = parse_target_date(raw_date, now)
+        if raw_date is not None:
+            return [end]
+        start = end - timedelta(days=DEFAULT_LOOKBACK_DAYS - 1)
+        return [
+            start + timedelta(days=offset)
+            for offset in range(DEFAULT_LOOKBACK_DAYS)
+        ]
     if raw_date is not None:
         raise As24SyncError("--date et --from sont mutuellement exclusifs")
     try:
@@ -481,7 +489,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--date",
-        help="Jour AS24 à importer (YYYY-MM-DD). Par défaut: J-1, heure de Paris.",
+        help=(
+            "Jour AS24 à importer (YYYY-MM-DD). Sans date ni plage: "
+            "rattrapage glissant de J-7 à J-1, heure de Paris."
+        ),
     )
     parser.add_argument(
         "--from",
@@ -523,7 +534,14 @@ def run(args: argparse.Namespace) -> int:
     username = require_env("AS24_USERNAME")
     password = require_env("AS24_PASSWORD")
 
-    if len(days) == 1:
+    if args.date is None and args.from_date is None:
+        log.info(
+            "Rattrapage glissant des transactions AS24 du %s au %s (%s jours)",
+            days[0].isoformat(),
+            days[-1].isoformat(),
+            len(days),
+        )
+    elif len(days) == 1:
         log.info("Synchronisation des transactions AS24 du %s", days[0].isoformat())
     else:
         log.info(

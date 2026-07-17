@@ -3,22 +3,26 @@
 Ce dépôt automatise deux flux indépendants depuis le portail MyAS24 :
 
 - les prix carburant quotidiens vers Supabase (`sync_as24.py`) ;
-- toutes les transactions brutes de J-1 vers le module RK Trans d'Optimove
-  Transport (`sync_transactions.py`).
+- toutes les transactions brutes des 7 derniers jours complets vers le module
+  RK Trans d'Optimove Transport (`sync_transactions.py`).
 
 ## Transactions quotidiennes
 
-Le workflow `AS24 Daily Transactions` s'exécute chaque jour à 06:20 UTC. Il :
+Le workflow `AS24 Daily Transactions` s'exécute chaque jour à 06:20 et 14:20
+UTC. Il :
 
 1. ouvre une session MyAS24 avec Playwright ;
 2. appelle l'API structurée
-   `secured/transactions/getListTransactions` pour J-1, heure de Paris ;
+   `secured/transactions/getListTransactions` pour chaque jour de J-7 à J-1,
+   heure de Paris ;
 3. conserve toutes les lignes sans filtrer l'offre, le produit ou l'unité ;
 4. envoie les données par lots à l'API d'import Optimove.
 
 Le payload AS24 original est transmis dans `raw_payload`. Quelques champs sont
 aussi projetés (date, carte, immatriculation, produit, quantité, montants) pour
-la recherche et l'affichage. L'identifiant AS24 rend chaque relance idempotente.
+la recherche et l'affichage. L'identifiant AS24 rend chaque relance idempotente :
+une transaction déjà connue est mise à jour, et une remontée tardive est ajoutée
+au passage suivant.
 
 ### Secrets GitHub requis
 
@@ -56,11 +60,11 @@ python -m unittest -v test_sync_transactions.py
 python sync_transactions.py --date 2026-07-14 --dry-run
 ```
 
-Sans `--date`, le script prend automatiquement J-1 dans le fuseau
-`Europe/Paris`, y compris lors des changements d'heure. Attention : les péages
-autoroutiers (PASSango/SANEF) peuvent apparaître dans l'extranet plusieurs
-heures après la fin de la journée — c'est pour cela que le cron tourne le
-lendemain matin et qu'un import lancé le soir même peut être incomplet.
+Sans `--date`, `--from` ni `--to`, le script rejoue automatiquement J-7 à J-1
+dans le fuseau `Europe/Paris`, y compris lors des changements d'heure. Les
+péages autoroutiers (PASSango/SANEF) et d'autres transactions peuvent apparaître
+dans l'extranet plusieurs heures après la fin de la journée : les deux passages
+quotidiens et la fenêtre glissante les récupèrent sans créer de doublon.
 
 ## Prix carburant
 
