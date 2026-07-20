@@ -3,7 +3,7 @@
 Ce dépôt automatise deux flux indépendants depuis le portail MyAS24 :
 
 - les prix carburant quotidiens vers Supabase (`sync_as24.py`) ;
-- toutes les transactions brutes des 7 derniers jours complets vers le module
+- toutes les transactions brutes de J-7 à J vers le module
   RK Trans d'Optimove Transport (`sync_transactions.py`).
 
 ## Transactions quotidiennes
@@ -13,7 +13,7 @@ UTC. Il :
 
 1. ouvre une session MyAS24 avec Playwright ;
 2. appelle l'API structurée
-   `secured/transactions/getListTransactions` pour chaque jour de J-7 à J-1,
+   `secured/transactions/getListTransactions` pour chaque jour de J-7 à J,
    heure de Paris ;
 3. conserve toutes les lignes sans filtrer l'offre, le produit ou l'unité ;
 4. envoie les données par lots à l'API d'import Optimove.
@@ -40,7 +40,7 @@ une option `dry_run` qui récupère et valide AS24 sans envoyer les données.
 ### Backfill de l'historique
 
 Pour importer une plage complète (jour par jour, upsert idempotent), lancer le
-workflow avec `from_date` (et optionnellement `to_date`, J-1 par défaut), ou en
+workflow avec `from_date` (et optionnellement `to_date`, J par défaut), ou en
 local :
 
 ```bash
@@ -60,7 +60,7 @@ python -m unittest -v test_sync_transactions.py
 python sync_transactions.py --date 2026-07-14 --dry-run
 ```
 
-Sans `--date`, `--from` ni `--to`, le script rejoue automatiquement J-7 à J-1
+Sans `--date`, `--from` ni `--to`, le script rejoue automatiquement J-7 à J
 dans le fuseau `Europe/Paris`, y compris lors des changements d'heure. Les
 péages autoroutiers (PASSango/SANEF) et d'autres transactions peuvent apparaître
 dans l'extranet plusieurs heures après la fin de la journée : les deux passages

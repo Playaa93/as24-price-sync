@@ -16,9 +16,9 @@ from sync_transactions import (
 
 
 class DateFilterTests(unittest.TestCase):
-    def test_default_is_yesterday_in_paris(self):
+    def test_default_is_today_in_paris(self):
         now = datetime(2026, 7, 15, 22, 30, tzinfo=timezone.utc)
-        self.assertEqual(parse_target_date(None, now), date(2026, 7, 15))
+        self.assertEqual(parse_target_date(None, now), date(2026, 7, 16))
 
     def test_bounds_follow_dst(self):
         summer_start, summer_end = paris_day_bounds_ms(date(2026, 7, 15))
@@ -38,7 +38,7 @@ class DateFilterTests(unittest.TestCase):
 class TargetDaysTests(unittest.TestCase):
     NOW = datetime(2026, 7, 15, 22, 30, tzinfo=timezone.utc)
 
-    def test_default_replays_last_seven_complete_days(self):
+    def test_default_replays_j_minus_seven_through_today(self):
         self.assertEqual(
             parse_target_days(None, None, None, self.NOW),
             [
@@ -49,6 +49,7 @@ class TargetDaysTests(unittest.TestCase):
                 date(2026, 7, 13),
                 date(2026, 7, 14),
                 date(2026, 7, 15),
+                date(2026, 7, 16),
             ],
         )
 
@@ -65,10 +66,10 @@ class TargetDaysTests(unittest.TestCase):
             [date(2026, 7, 12), date(2026, 7, 13), date(2026, 7, 14)],
         )
 
-    def test_range_defaults_to_yesterday(self):
+    def test_range_defaults_to_today(self):
         days = parse_target_days(None, "2026-07-13", None, self.NOW)
         self.assertEqual(days[0], date(2026, 7, 13))
-        self.assertEqual(days[-1], date(2026, 7, 15))
+        self.assertEqual(days[-1], date(2026, 7, 16))
 
     def test_rejects_invalid_combinations(self):
         with self.assertRaisesRegex(As24SyncError, "--to nécessite --from"):

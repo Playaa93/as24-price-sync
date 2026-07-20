@@ -20,7 +20,9 @@ TRANSACTIONS_URL = (
     "https://extranet.as24.com/myas24/secured/transactions/getListTransactions"
 )
 PARIS = ZoneInfo("Europe/Paris")
-DEFAULT_LOOKBACK_DAYS = 7
+# Sept jours complets, plus la journée en cours pour rendre les opérations
+# intrajournalières visibles dès le prochain passage.
+DEFAULT_LOOKBACK_DAYS = 8
 MAX_BATCH_ITEMS = 1_000
 MAX_BATCH_BYTES = 1_500_000
 
@@ -68,7 +70,7 @@ def parse_target_date(raw: str | None, now: datetime | None = None) -> date:
         except ValueError as exc:
             raise As24SyncError("--date doit être au format YYYY-MM-DD") from exc
     paris_now = (now or datetime.now(tz=PARIS)).astimezone(PARIS)
-    return paris_now.date() - timedelta(days=1)
+    return paris_now.date()
 
 
 def parse_target_days(
@@ -491,7 +493,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--date",
         help=(
             "Jour AS24 à importer (YYYY-MM-DD). Sans date ni plage: "
-            "rattrapage glissant de J-7 à J-1, heure de Paris."
+            "rattrapage glissant de J-7 à J, heure de Paris."
         ),
     )
     parser.add_argument(
@@ -502,7 +504,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--to",
         dest="to_date",
-        help="Fin de plage à importer (YYYY-MM-DD). Par défaut: J-1, heure de Paris.",
+        help="Fin de plage à importer (YYYY-MM-DD). Par défaut: J, heure de Paris.",
     )
     parser.add_argument(
         "--dry-run",
