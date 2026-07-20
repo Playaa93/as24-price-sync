@@ -2,13 +2,13 @@ name: AS24 Daily Transactions
 
 on:
   schedule:
-    # Deux reprises quotidiennes de J-7 à J-1 pour récupérer les remontées AS24 tardives.
+    # Deux reprises quotidiennes de J-7 à J pour récupérer aussi la journée en cours.
     - cron: '20 6 * * *'
     - cron: '20 14 * * *'
   workflow_dispatch:
     inputs:
       target_date:
-        description: 'Jour à importer (YYYY-MM-DD). Vide = reprise glissante J-7 à J-1.'
+        description: 'Jour à importer (YYYY-MM-DD). Vide = reprise glissante J-7 à J.'
         required: false
         type: string
       from_date:
@@ -16,7 +16,7 @@ on:
         required: false
         type: string
       to_date:
-        description: 'Backfill: fin de plage (YYYY-MM-DD). Vide = J-1 heure de Paris.'
+        description: 'Backfill: fin de plage (YYYY-MM-DD). Vide = J heure de Paris.'
         required: false
         type: string
       dry_run:
