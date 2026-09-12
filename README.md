@@ -76,6 +76,18 @@ tous les jours à 06:00 UTC. Il utilise, en plus des identifiants AS24 :
 | `SUPABASE_URL` | URL du projet Supabase de destination |
 | `SUPABASE_SERVICE_KEY` | Clé service role Supabase |
 
+### Maintien de la planification
+
+GitHub peut désactiver les workflows planifiés d'un dépôt public après 60 jours
+d'inactivité. Le workflow `Keep AS24 Price Sync active` renouvelle chaque lundi
+à 05:17 UTC l'activation de `AS24 Price Sync` et sa propre activation via l'API
+GitHub. Il fonctionne indépendamment de la synchronisation des prix et peut
+être lancé manuellement pour vérifier le maintien.
+
+Il utilise uniquement le jeton automatique `GITHUB_TOKEN` avec la permission
+`actions: write`, sans secret supplémentaire. Une désactivation manuelle de
+`AS24 Price Sync` est respectée. Le workflow de transactions reste indépendant.
+
 ## Sécurité
 
 Les logs ne contiennent ni cookie JWT, ni mot de passe, ni payload brut. Les

@@ -1,0 +1,38 @@
+name: Keep AS24 Price Sync active
+
+on:
+  schedule:
+    # Renouvelle l'activation chaque lundi, bien avant les 60 jours d'inactivité.
+    - cron: '17 5 * * 1'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Renew workflow activation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Le maintien renouvelle aussi sa propre activation.
+          for workflow in keepalive.yml daily-sync.yml; do
+            endpoint="repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}"
+            state=$(gh api "$endpoint" --jq '.state')
+            case "$state" in
+              active|disabled_inactivity)
+                gh api --method PUT "${endpoint}/enable"
+                echo "Activation renouvelée : ${workflow}"
+                ;;
+              *)
+                # Respecte notamment une désactivation volontaire du propriétaire.
+                echo "Activation inchangée : ${workflow} (${state})"
+                ;;
+            esac
+          done
